@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="logo.png" alt="DASight logo" width="150"/>
+  <img src="logo-DASight.png" alt="DASight logo" width="150"/>
 </p>
 
 # DASight  
