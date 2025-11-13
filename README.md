@@ -1,10 +1,22 @@
-# T2-DASight
- Image-based ML approaches for DAS data
+# 🪩 DASight  
+**Image-based Machine Learning for Distributed Acoustic Sensing (DAS)**  
 
-This repository contains the work for Task 3.2.3: Image-based Machine Learning Approaches for Distributed Acoustic Sensing (DAS), part of the Transform² project at the Institut de Physique du Globe de Paris (IPGP).
+---
 
-The goal is to develop and test computer vision methods for automatic detection of seismic events in DAS data, enabling smart data selection and storage optimization.
+### 📘 Overview  
+**DASight** is part of **Task 3.2.3: Image-based Machine Learning Approaches for Distributed Acoustic Sensing (DAS)** within the **Transform² Project** at the [Institut de Physique du Globe de Paris (IPGP)](https://www.ipgp.fr).  
 
-The workflow builds on the open-source Julia package DASVader.jl, extending it with image-based ML capabilities.
+This work focuses on developing and testing **computer vision methods** for the **automatic detection of seismic events** in DAS data. The goal is to enable **smart data selection** and **storage optimization** for large-scale DAS deployments.
 
-This work is led by Mariano Arnaiz and Claudio Satriano (IPGP).
+---
+
+### ⚙️ Workflow  
+The workflow builds on the open-source Julia package [**DASVader.jl**](https://github.com/IPGP/DASVader.jl), extending it with **image-based ML capabilities** for event detection and data filtering.
+
+---
+
+### 👥 Authors  
+**Mariano Arnaiz** and **Claudio Satriano**  
+*Institut de Physique du Globe de Paris (IPGP)*  
+
+---
