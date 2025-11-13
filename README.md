@@ -1,8 +1,6 @@
-
 <p align="center">
   <img src="logo.png" alt="DASight logo" width="150"/>
 </p>
-
 # DASight  
 **Image-based Machine Learning for Distributed Acoustic Sensing (DAS)**  
 
