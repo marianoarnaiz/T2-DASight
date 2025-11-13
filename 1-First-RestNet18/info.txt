@@ -1,0 +1,67 @@
+DASight – Initial Script
+Author: Mariano Arnaiz
+Date: 2025-11-13
+Description:
+-------------
+This Julia script demonstrates a simple workflow to train a deep learning model
+for classifying DAS (Distributed Acoustic Sensing) image data. It is designed 
+as a minimal working example rather than a production-ready classifier.
+
+Workflow:
+---------
+1. **Data Loading**
+   - Loads images from a directory structure with one folder per class.
+   - Currently expects exactly 2 classes.
+   - Images are resized to 224x224, converted to RGB if necessary, and normalized
+     using ImageNet mean and standard deviation to match ResNet-18 expectations.
+
+2. **Train/Test Split**
+   - Data is randomly shuffled.
+   - 80% of images are used for training, 20% for testing.
+
+3. **Data Preparation**
+   - Images are stacked into 4D tensors with dimensions (Height, Width, Channels, Batch).
+   - Labels are converted to integer class indices.
+
+4. **Model Definition**
+   - Uses a pretrained ResNet-18 backbone from Metalhead.jl.
+   - Appends a small Dense layer to output 2 logits for the 2-class problem.
+
+5. **Training Setup**
+   - Loss: `logitcrossentropy` for classification.
+   - Optimizer: Adam with learning rate 1e-3.
+   - Mini-batch size: 32.
+   - Epochs: 5 (adjustable, small for testing purposes).
+
+6. **Training Loop**
+   - Iterates over epochs and batches.
+   - Computes gradients, updates parameters, and prints progress every 10 batches.
+   - Tracks full-epoch loss and accuracy for both training and testing sets.
+
+7. **Metrics**
+   - Accuracy is computed on both train and test sets using the `accuracy` function.
+   - Epoch metrics are stored in arrays and combined into a matrix `Train_Results`
+     with columns: train_loss, test_loss, acc_train, acc_test.
+
+Notes:
+------
+- The supplied dataset is intentionally small, just to verify the script runs.
+- For realistic training, a larger dataset is required.
+- The script demonstrates:
+    • Loading and preprocessing DAS images.
+    • Using a pretrained ResNet-18 for transfer learning.
+    • Defining loss, optimizer, and training loop in Flux.jl.
+    • Tracking and reporting metrics per epoch.
+
+Usage:
+------
+1. Place the images in `train/<class_name>/` folders.
+2. Adjust `Epochs` and `batchsize` as needed.
+3. Run the script in Julia 1.8+ with required packages installed:
+   `Flux`, `Metalhead`, `Images`, `ImageIO`, `FileIO`, `BSON`.
+4. After training, `Train_Results` contains the evolution of loss and accuracy.
+
+Disclaimer:
+-----------
+This script is meant for demonstration and testing. Do not expect high accuracy
+with the supplied minimal dataset.
