@@ -11,7 +11,7 @@ This work focuses on developing and testing **computer vision methods** for the 
 ---
 
 ### ⚙️ Workflow  
-The workflow builds on the open-source Julia package [**DASVader.jl**](https://github.com/IPGP/DASVader.jl), extending it with **image-based ML capabilities** for event detection and data filtering.
+The workflow builds on the open-source Julia package [**DASVader.jl**]([https://github.com/IPGP/DASVader.jl](https://github.com/marianoarnaiz/DASvader.jl)), extending it with **image-based ML capabilities** for event detection and data filtering.
 
 ---
 
