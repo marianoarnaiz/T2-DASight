@@ -21,6 +21,7 @@ The workflow builds on the open-source Julia package [**DASVader.jl**](https://g
 
 ### 👥 Authors  
 **Mariano Arnaiz** and **Claudio Satriano**  
+(mararnai@ipgp.fr)
 *Institut de Physique du Globe de Paris (IPGP)*  
 
 ---
