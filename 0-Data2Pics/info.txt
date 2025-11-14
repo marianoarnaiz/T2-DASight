@@ -1,0 +1,39 @@
+DASight – Image Signal Processing Pipeline
+Author: Mariano Arnaiz
+Date: 2025-11-14
+
+Description
+
+This script performs the complete signal-processing workflow needed to convert raw DAS (Distributed Acoustic Sensing) NetCDF files into preprocessed, filtered, normalized and augmented image data. It is intended for generating large, standardized datasets suitable for machine-learning applications such as training convolutional neural networks.
+
+The script reads raw iDAS strain-rate data, performs time and offset reconstruction, applies preprocessing and normalization, automatically determines an appropriate frequency band, performs FK analysis and Gaussian FK filtering, normalizes filtered amplitudes, exports standardized images, generates augmented variants, enhances image contrast and sorts the output figures into organized directories. All helper functions are provided by the Image-Signal-Processing.jl module.
+
+Workflow
+
+For each NetCDF file, the script loads the StrainRate dataset, constructs the spatial offset axis and parses timestamps from the file’s metadata. It then builds both a regular DAS time vector and high-resolution timestamp objects, assembling everything into an iDAS structure.
+
+Initial preprocessing removes mean and trend per channel and optionally applies a taper. Channel-wise normalization is applied to stabilize amplitudes.
+
+The useful signal band is automatically identified using a Welch-like PSD method. Median PSD and noise PSD are estimated across all channels, smoothed in the decibel domain and used to compute an SNR curve. An SNR bump is detected to determine lower and upper frequency limits. A Butterworth bandpass is then applied, followed again by preprocessing and normalization.
+
+FK analysis is used to identify the dominant frequency–wavenumber peak associated with coherent seismic energy. A Gaussian mask centered on that peak is applied in FK space to enhance coherent structure and suppress incoherent noise. The filtered image is normalized by the maximum amplitude of each channel.
+
+Three standardized 224x224 images are exported for each case using different colormaps (RdBu, Viridis and Grayscale). These images contain no axes or decorations and are suitable for machine-learning pipelines.
+
+The script then performs data augmentation by generating several randomized variants of each filtered image. Operations include polarity reversal, channel flipping, time shifting, time stretching, channel dropping and re-rendering using the three colormaps. Each augmented image is saved with an operation code and timestamp for reproducibility.
+
+After all images are generated, automatic contrast leveling is applied to each PNG using luminance percentiles. This improves visual consistency across the dataset.
+
+Finally, all output images are sorted into a timestamped directory structure where each colormap has its own subfolder (grays, RdBu, viridis).
+
+Notes
+
+This script is intended as a flexible processing and dataset-generation tool for research use. It relies on valid DAS NetCDF metadata for correct time parsing and offset reconstruction. The Image-Signal-Processing.jl file must contain all required helper functions for PSD computation, band identification, FK methods, normalization, augmentation and directory management.
+
+Usage
+
+Place NetCDF files in the working directory. Ensure required packages are installed (NCDatasets, DASVader, CairoMakie, StatsBase, NanoDates, Dates, etc.) and that Image-Signal-Processing.jl is available. Running the script will produce a timestamped directory containing all generated figures.
+
+Disclaimer
+
+This script is intended for research and custom dataset generation. Optimal filter parameters, FK characteristics and augmentation strategies may differ between deployments and may require further tuning.
