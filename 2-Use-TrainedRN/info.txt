@@ -1,0 +1,65 @@
+DASight – Script 2 (v2.0)
+Author: Mariano Arnaiz
+Date: 2025-11-13
+
+Description:
+-------------
+This Julia script loads a previously trained ResNet-18 model (from Script 1)
+and applies it to a set of new DAS images for automatic classification.  
+It is intended as a simple, reliable inference pipeline that reproduces the
+exact same preprocessing steps used during training to ensure consistency
+and reproducibility.
+
+Workflow:
+---------
+1. **Model Loading**
+   - Loads the best-performing trained model from `best_resnet18.bson`.
+   - Imports the associated vector of class names.
+
+2. **Image Preprocessing**
+   - Images are resized to 224×224.
+   - Converted to channel-first `Float32` tensors.
+   - Grayscale images are expanded to 3 channels.
+   - RGBA images drop the alpha channel.
+   - All images are normalized using ImageNet mean (`μ`) and std (`σ`), exactly
+     matching the training configuration.
+
+3. **Directory Classification**
+   - Scans a directory and selects files with valid image extensions
+     (`.png`, `.jpg`, `.jpeg`).
+   - Applies preprocessing to each file.
+   - Performs forward inference with the loaded ResNet model.
+   - Extracts:
+       • top-1 predicted class  
+       • softmax confidence score  
+   - Stores results in an `N×3` matrix: filename, class label, probability.
+
+4. **Running Inference**
+   - Set `dir` to the directory containing images to classify.
+   - `classify_dir(dir, model, classes)` processes all images and
+     returns the predictions table.
+
+Notes:
+------
+- Preprocessing is *identical* to Script 1 to avoid train–test mismatch.
+- Images must already be “DAS-ready” (correct dynamic range, orientation,
+  cropping, etc.) according to the conventions used in Script 0.
+- Output predictions are stored in a heterogeneous array for simplicity.
+- The script is lightweight and designed for quick experimentation rather
+  than large-scale production deployment.
+
+Usage:
+------
+1. Place new images in a folder (e.g., `secret_test_set/`).
+2. Ensure the file `best_resnet18.bson` is located in the working directory.
+3. Run the script in Julia 1.8+ with the required packages installed:
+   `Flux`, `Metalhead`, `Images`, `ImageIO`, `FileIO`, `MLUtils`, `BSON`.
+4. Execute:
+       preds = classify_dir(dir, model, classes)
+   to obtain filename–class–probability predictions.
+
+Disclaimer:
+-----------
+This is a minimal inference script intended to validate trained models and
+perform small-scale batch classification. It does not include error handling,
+GPU acceleration options, or advanced post-processing steps.
