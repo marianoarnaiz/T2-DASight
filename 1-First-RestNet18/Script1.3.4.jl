@@ -1,0 +1,288 @@
+# ================================================================
+#  DASight – Initial Script (V 1.1)
+#  Author: Mariano Arnaiz
+#  Description:
+#    Loads DAS image data, splits it into training and validation sets,
+#    and trains a ResNet-18 model for event classification.
+# Note: Difference from this script comes from Léonard Seydoux's input
+# ================================================================
+
+# ---- 0.1 Modules ----------------------------------------------------
+using Flux, Metalhead, Statistics, Random # Core machine learning and neural network tools
+using Images, ImageIO, FileIO # Image loading and preprocessing
+using Flux: DataLoader, onehotbatch, params # Utilities for data handling and saving model parameters
+using BSON: @save, @load    # ← move here, not buried in the training loop
+using MLUtils   # for flatten
+
+# ---- 0.2 Define Constants ------------------------------------------
+# ImageNet normalization statistics (mean and std for each RGB channel)
+# Used to normalize input images to match the ResNet-18 pretraining setup.
+const μ = Float32[0.485f0, 0.456f0, 0.406f0] # mean
+const σ = Float32[0.229f0, 0.224f0, 0.225f0] # std
+
+# ---- 0.3 Define Functions ----------------------------------------------------
+
+"""
+    load_images_and_labels(data_dir::String, classes::Vector{String}) -> (X, y)
+
+Loads and preprocesses labeled image data from a directory structure.
+
+Each subfolder in `data_dir` should correspond to one class in `classes`
+and contain `.png`, `.jpg`, or `.jpeg` images.
+
+For each image:
+- Resizes to `(224, 224)` to match ResNet input.
+- Converts to Float32 and channel-first format (C×H×W).
+- Expands grayscale to RGB or removes alpha channels if present.
+- Normalizes pixel values using ImageNet mean (`μ`) and std (`σ`).
+
+# Returns
+- `X` : Vector of normalized image tensors (`Array{Float32,3}`).
+- `y` : Vector of integer class indices corresponding to `classes`.
+"""
+function load_images_and_labels(data_dir, classes)
+    X, y = Vector{Array{Float32,3}}(), Int[]
+    valid_ext = [".png", ".jpg", ".jpeg"]
+    for (label_idx, class) in enumerate(classes)
+        for file in readdir(joinpath(data_dir, class))
+            ext = lowercase(splitext(file)[2])
+            if ext ∈ valid_ext
+                img = load(joinpath(data_dir, class, file))
+                img = imresize(img, (224, 224))                 # resize
+                img = Float32.(channelview(img))                # CHW
+                # convert grayscale -> RGB or drop alpha if necessary
+                size(img,1) == 1 && (img = repeat(img, 3,1,1))
+                size(img,1) == 4 && (img = img[1:3,:,:])
+                # normalize
+                img = (img .- μ) ./ σ
+                push!(X, img)
+                push!(y, label_idx)
+            end
+        end
+    end
+    return X, y
+end
+
+
+"""
+    accuracy(model, loader) -> Float64
+
+Computes classification accuracy for a trained model on a dataset.
+
+Iterates over a `DataLoader`, performs forward inference on each batch,
+and compares predicted and true class indices.
+
+# Arguments
+- `model`  : Flux model (e.g. ResNet-18).
+- `loader` : `DataLoader` object containing `(x, y)` batches.
+
+# Returns
+- Mean classification accuracy as a `Float64` between 0 and 1.
+"""
+function accuracy(m, loader)
+    total_correct = 0
+    total_seen = 0
+    for (x, y) in loader
+        preds = m(x)
+        # convert CartesianIndex -> Int
+        pred_labels = vec(map(ind -> ind[1], argmax(preds, dims=1)))
+        total_correct += sum(pred_labels .== y)
+        total_seen += length(y)
+    end
+    return total_correct / total_seen
+end
+
+# ---- 1. Data Loading --------------------------------------------------------
+# Define the root directory containing the training data.
+# Each subdirectory inside `data_dir` corresponds to one class.
+data_dir = "HADES"
+
+# List available class folders, ignoring hidden files (e.g. .DS_Store)
+classes = filter(x -> !startswith(x, "."), readdir(data_dir))
+println("Classes found: ", classes)
+
+# Load all images and labels from the dataset
+X, y = load_images_and_labels(data_dir, classes)
+println("Loaded $(length(X)) images across $(length(classes)) classes.")
+
+# ---- 2. train/test split -----------------------------------------------
+# Shuffle the indices of all images to ensure randomness
+# Compute the split index at 80% of the dataset
+# Divide the indices into training and testing sets
+n = length(X);
+idx = shuffle(1:n);
+split_at = Int(round(0.8 * n));
+train_idx, test_idx = idx[1:split_at], idx[split_at+1:end];
+
+# ---- 3. stack arrays into (C,H,W,N) batches ----------------------------
+# Convert the image arrays into a single 4D tensor for training/testing:
+#   - X[i] are individual images (H x W x C)
+#   - We concatenate them along a new 4th dimension (batch dimension)
+#   - Initially cat(..., dims=4) produces (C,H,W,N) but may need permuting
+#   - permutedims reorders dimensions to match expected input format for the model
+#     (here we go from CHW + batch -> WHCB, adjust as needed for your framework)
+# Convert labels to Int32 for compatibility with loss functions
+
+x_train = stack((X[i] for i in train_idx); dims=4)#cat([X[i] for i in train_idx]..., dims=4);  # Concatenate training images along 4th dim
+x_train = permutedims(x_train, (2, 3, 1, 4));         # Reorder dimensions if needed
+y_train = Int32.(y[train_idx]);                       # Convert training labels to Int32
+
+x_test  = cat([X[i] for i in test_idx]...,  dims=4);  # Same for testing images
+x_test  = permutedims(x_test,  (2, 3, 1, 4));         # Reorder dimensions
+y_test  = Int32.(y[test_idx]);                        # Convert testing labels
+
+# Print batch shapes for verification
+println("train batch size: ", size(x_train), ", y_train length: ", length(y_train))
+println("test batch size:  ", size(x_test),  ", y_test length: ", length(y_test))
+
+# ---- 4. model: pretrained ResNet18 + generic classifier head -----
+# Load a pretrained ResNet18 model (Metalhead)
+#   - Pretrained on ImageNet (1000 classes)
+#   - inchannels=3 ensures RGB input
+resnet = ResNet(18; pretrain=true, inchannels=3)  # or Metalhead.resnet18(pretrained=true)
+
+# Number of classes for your dataset
+n_classes = length(classes)   # automatically adapts to your dataset
+
+# Build the full model
+# Take drop out if necessary
+model = Chain(
+    resnet.layers[1:end-1]...,      # backbone only, discard original 1000-class head
+    AdaptiveMeanPool((1, 1)),       # reduce spatial 7x7 → 1x1
+    MLUtils.flatten,                # flatten to (512,)
+    Dense(512, 128, relu),          # hidden layer with ReLU
+    Dense(128, n_classes)           # final output layer, raw logits
+)
+
+#this is a more complex one... but does not work better :s
+# model = Chain(
+#     resnet.layers[1:end-1]...,    # backbone
+#     AdaptiveMeanPool((1,1)),
+#     MLUtils.flatten,
+#     Dense(512,128),               # new hidden layer
+#     BatchNorm(128),               # normalize before activation
+#     relu,                         # activation
+#     Dropout(0.3),                 # optional
+#     Dense(128,n_classes)          # output logits
+# )
+
+
+# ---- 5. loss, optimizer, accuracy -------------------------------------
+# Define the loss function for 2-class classification:
+#   - Flux.logitcrossentropy expects raw logits (no softmax)
+#   - onehotbatch(y, 1:2) converts integer labels to one-hot vectors
+loss(m, x, y) = Flux.logitcrossentropy(m(x), onehotbatch(y, 1:2));
+
+# Choose the optimizer: Adam with learning rate 1e-3
+#   - A smaller learning rate (e.g., 1e-5) could be used for fine-tuning
+opt = Adam(1e-3);
+
+# Get the parameters of the model for optimization
+ps = params(model);
+
+# ---- 6. DataLoaders ----------------------------------------------------
+# Wrap training and testing data into DataLoaders for mini-batch iteration
+#   - batchsize=32 specifies the number of samples per batch
+#   - shuffle=true ensures training batches are randomized each epoch
+#   - shuffle=false for test_loader to preserve order (no randomness needed)
+train_loader = DataLoader((x_train, y_train), batchsize=32, shuffle=true);
+test_loader  = DataLoader((x_test,  y_test),  batchsize=32, shuffle=false);
+
+# ---- 7. training loop --------------------------------------------------
+best_acc = 0.0                     # Keep track of best test accuracy
+Epochs = 10                         # ← Increase epochs here to train longer
+bad_epochs = 0                      # Counter for early-stopping-like logic (not used here)
+patience = 3   # maximum allowed consecutive bad epochs
+
+# Arrays to store metrics for each epoch
+train_loss_epoch = zeros(Epochs)   # Training loss per epoch
+test_loss_epoch  = zeros(Epochs)   # Test/validation loss per epoch
+acc_train_epoch  = zeros(Epochs)   # Training accuracy per epoch
+acc_test_epoch   = zeros(Epochs)   # Test accuracy per epoch
+
+# Loop over all epochs
+epoch_times = Float64[]  # store epoch durations for ETA
+
+# After building your model, add this:
+
+# Save initial state so we always have something to restore
+@save "best_resnet18.bson" model classes epoch=0 acc_test=0.0
+best_acc = 0.0
+bad_epochs = 0
+
+for epoch in 1:Epochs
+    epoch_start = time()
+    batch_num = 0
+    running_loss = 0.0
+
+    for (x, y) in train_loader
+        batch_num += 1
+        gs = gradient(ps) do
+            l = loss(model, x, y)
+            running_loss += l
+            return l
+        end
+        Flux.Optimise.update!(opt, ps, gs)
+        if batch_num % 10 == 0
+            println("  batch $batch_num  loss=$(round(running_loss / batch_num, digits=5))")
+        end
+    end
+
+    train_loss = loss(model, x_train, y_train)
+    test_loss  = loss(model, x_test, y_test)
+    acc_train  = accuracy(model, train_loader)
+    acc_test   = accuracy(model, test_loader)
+    train_loss_epoch[epoch] = train_loss
+    test_loss_epoch[epoch]  = test_loss
+    acc_train_epoch[epoch]  = acc_train
+    acc_test_epoch[epoch]   = acc_test
+
+    if acc_test >= best_acc
+        best_acc = acc_test
+        bad_epochs = 0
+        @save "best_resnet18.bson" model opt classes epoch acc_test
+        println("  → New best model saved! acc_test=$(round(acc_test, digits=4))")
+    else
+        # bad_epochs += 1
+        # println("  → Bad epoch ($bad_epochs in a row) — restoring best weights")
+        # # Reload best weights before next epoch
+        # @load "best_resnet18.bson" model
+        # ps = params(model)  # ← must re-bind params after reloading!
+        bad_epochs += 1
+        println("  → Bad epoch ($bad_epochs in a row) — restoring best weights")
+        @load "best_resnet18.bson" model opt
+        ps = params(model)      # rebind params ✅ already doing this
+        #opt = Adam(1e-3)        # ← MISSING: reset optimizer, clears poisoned momentum
+        #Flux.Optimise.update!(opt, ps, gradient(ps) do; 0.0; end)  # ← warm up opt with zero grad
+        # Verify restoration worked
+        acc_restored = accuracy(model, test_loader)
+        println("  → Restored model test accuracy = $(round(acc_restored, digits=4))")
+    end
+
+    elapsed = time() - epoch_start
+    push!(epoch_times, elapsed)
+    avg_time = mean(epoch_times)
+    remaining = avg_time * (Epochs - epoch)
+    println("epoch $epoch  train_loss=$(round(train_loss,digits=6))  test_loss=$(round(test_loss,digits=6))  acc_train=$(round(acc_train,digits=3))  acc_test=$(round(acc_test,digits=3))  ⏱ $(round(elapsed/60, digits=1)) min/epoch  ETA $(round(remaining/60, digits=1)) min")
+
+    if bad_epochs >= patience
+        println("\n🛑 Early stopping triggered at epoch $epoch")
+        break
+    end
+end
+
+
+# ---- 8. Print the evolution into a matrix ----------------------------------------------------
+# Combine all tracked metrics into a single matrix for easy viewing or export
+# Columns are:
+#   1. train_loss_epoch
+#   2. test_loss_epoch
+#   3. acc_train_epoch
+#   4. acc_test_epoch
+# Each row corresponds to one epoch
+Train_Results = [train_loss_epoch  test_loss_epoch  acc_train_epoch  acc_test_epoch]
+
+# ---- 9. Print the evolution into a matrix ----------------------------------------------------
+@save "resnet18_last_trained.bson" model classes
+println("Saved last trained model → resnet18_last_trained.bson")
+println("Trainable parameters: ", sum(length, params(model)))
